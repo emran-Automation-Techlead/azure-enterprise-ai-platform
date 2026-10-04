@@ -1,0 +1,18 @@
+# secrets and local files
+.env
+.env.*
+!.env.example
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.log
+.streamlit/
+.pytest_cache/
+.DS_Store
+*.pem
+*.pfx
+try_*.py
+evaluation/results.json
+
+try_*.html

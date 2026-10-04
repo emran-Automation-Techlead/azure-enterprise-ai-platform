@@ -1,0 +1,10 @@
+# Local run:  docker compose up --build
+# Secrets are read from your local .env at start-up; they are NOT baked into the image.
+services:
+  enterprise-ai:
+    build: .
+    image: enterprise-ai-platform:local
+    env_file: .env
+    ports:
+      - "8000:8000"   # FastAPI
+      - "8501:8501"   # Streamlit

@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.git
+venv/
+__pycache__/
+*.pyc
+docs/
+tests/
+data/
+try_*.py
+evaluation/results.json
+.pytest_cache/
