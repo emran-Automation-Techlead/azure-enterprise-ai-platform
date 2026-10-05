@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import config, router, telemetry
 from app.llm import LLMError
 from app.models import ChatRequest, ChatResponse, SafetyCheckRequest, SafetyCheckResponse
-from app.responsible_ai import handle
+from app.chat import handle
 from app.safety import default_checker, redact
 from app.search import SearchError
 
@@ -41,7 +41,7 @@ def chat(req: ChatRequest):
 
 @app.post("/evaluate")
 def evaluate(repeats: int = 1):
-    """Run the Portfolio Responsible AI Evaluation (10 cases). Slow: makes real model calls."""
+    """Run the Portfolio Multi-Agent Evaluation (12 cases). Slow: makes real model calls."""
     if not 1 <= repeats <= 3:
         raise HTTPException(422, "repeats must be between 1 and 3.")
     from evaluation.evaluate import run  # imported lazily so the API starts without the evaluation package

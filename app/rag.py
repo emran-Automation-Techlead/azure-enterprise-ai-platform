@@ -54,20 +54,37 @@ def _fallback(reason: str, score: float = 0.0, tokens: int = 0) -> RAGResult:
     return RAGResult(answer=NOT_ENOUGH_INFO, grounded=False, grounding_score=round(score, 2), tokens=tokens, fallback_reason=reason)
 
 
-def answer(question: str) -> RAGResult:
+@dataclass
+class Retrieval:
+    docs: list[dict] = field(default_factory=list)
+    relevance: dict = field(default_factory=dict)
+    top_score: float = 0.0
+    fallback_reason: str = ""      # set when the grounding gate says "do not call the model"
+
+
+def retrieve(question: str) -> Retrieval:
+    """Hybrid retrieval + grounding gate. Shared by every agent that reads enterprise documents."""
     # 1. Retrieval: vector scores measure relevance; hybrid gives the best ranking for the final order.
     vector_hits = search.search(question, "vector", k=6)
     top_score = max((h["score"] for h in vector_hits), default=0.0)
     if not vector_hits:
-        return _fallback("Search returned no documents.")
+        return Retrieval(fallback_reason="Search returned no documents.")
     if top_score < MIN_TOP_SCORE:
-        return _fallback(f"Best match score {top_score:.2f} is below the grounding threshold {MIN_TOP_SCORE}.", top_score)
+        return Retrieval(top_score=top_score, fallback_reason=f"Best match score {top_score:.2f} is below the grounding threshold {MIN_TOP_SCORE}.")
 
     relevance = {h["id"]: h["score"] for h in vector_hits}
     hybrid_hits = search.search(question, "hybrid", k=TOP_K)
     docs = [d for d in hybrid_hits if relevance.get(d["id"], 0.0) >= MIN_DOC_SCORE]
     if not docs:
-        return _fallback("No retrieved document was relevant enough.", top_score)
+        return Retrieval(top_score=top_score, fallback_reason="No retrieved document was relevant enough.")
+    return Retrieval(docs=docs, relevance=relevance, top_score=top_score)
+
+
+def answer(question: str) -> RAGResult:
+    ret = retrieve(question)
+    if ret.fallback_reason:
+        return _fallback(ret.fallback_reason, ret.top_score)
+    docs, relevance, top_score = ret.docs, ret.relevance, ret.top_score
 
     # 2. Grounded prompt
     context = "\n\n".join(

@@ -1,5 +1,7 @@
 # Architecture
 
+> This document describes the original single pipeline (still available with `AGENT_MODE=single`). The multi-agent version is in [multi-agent-architecture.md](multi-agent-architecture.md).
+
 > Portfolio project with **synthetic data**. Items marked **PRODUCTION ENHANCEMENT** are designed but not built.
 
 ## 1. Request flow

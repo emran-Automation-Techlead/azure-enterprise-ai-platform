@@ -67,3 +67,40 @@ It's deployed as one container on Azure Container Apps, with secrets in Key Vaul
 - The 0.65 threshold is a small calibration, and one high-risk question scored 0.66.
 - Content Safety missed a calmly worded harmful request and doesn't detect injection.
 - AI services still use keys (held in Key Vault); token auth is the production step.
+
+---
+
+# Multi-agent questions
+
+**M1. Why multi-agent?** One pipeline could only follow one path per request and could not review itself independently. Specialised agents have focused roles, their own tools and tests, can be combined for mixed requests ("VPN is failing, should we disable MFA?"), and the Responsible AI reviewer is separate from the agents producing the answer. It costs more latency, tokens and complexity.
+
+**M2. Why not a single agent?** For one narrow path a single agent is simpler, cheaper and faster, and I'd choose it. Here, mixed requests, an independent reviewer and separately testable behaviours justified the extra cost. I kept `AGENT_MODE=single` to restore the original pipeline.
+
+**M3. What does the orchestrator do?** It never answers. Hard rules run first and block injection, credential requests and bypass attempts with no model call. Otherwise one model call classifies the request into one or more types, and code maps those to agents, with overrides the model can't undo (for example proposing to disable a security control always adds the Knowledge agent).
+
+**M4. How do agents communicate?** Through typed Pydantic messages (`AgentMessage`, `OrchestratorPlan`, `ReviewVerdict`), not free text. Invalid values are rejected. The pipeline runs the agents in the planned order; agents never call each other.
+
+**M5. How do you prevent agent hallucination?** Retrieval gates the model (weak match means `NO_RELEVANT_KNOWLEDGE` and no model call). Incident findings are labelled From sources / Inference / Unknown, and code downgrades any "sourced" claim whose document wasn't actually retrieved. The General agent is labelled and can never carry enterprise sources. This reduces hallucination; it doesn't remove it.
+
+**M6. How does the Responsible AI agent work?** A deterministic floor (rules, Azure AI Content Safety, output scan, conflicts, missing knowledge, outages) plus one model call that checks unsupported claims, risk and privacy. The model can only raise risk. It returns a structured verdict with a short reason, no chain-of-thought. It sees claims and source IDs, not full source text, which is a known limit.
+
+**M7. How do you prevent prompt injection?** Rules block override attempts before any worker agent or model runs. Document text and agent output are treated as data. A test checks that an injection hidden inside agent output can't lower the risk. Azure AI Content Safety doesn't detect injection (I observed that), so Prompt Shields would be my production step.
+
+**M8. How do you manage multi-agent cost?** Rules and the grounding gate run before models, a blocked request makes 0 model calls, the reviewer skips its call when there is nothing to review, and I use a small model with short prompts. A normal request makes about 3 calls (4 for a two-agent request) versus about 2 originally. I haven't measured real token costs yet.
+
+**M9. How do you manage latency?** Today agents run sequentially, so latency adds up. Independent agents (Incident and Knowledge) could run in parallel, and routing could use a smaller model or caching. Not built yet.
+
+**M10. How would you scale the agents?** They are stateless inside the FastAPI container, so Container Apps scales horizontally. If one agent became a bottleneck I could split it into its own service. Search replicas and OpenAI quota management matter more than agent count.
+
+**M11. How would you evaluate agent routing?** Each evaluation case lists acceptable worker-agent sets (`expected_agents`), and a routing score checks the orchestrator ran first, the reviewer last and the workers matched. There are 12 cases, so it demonstrates the method and doesn't prove reliability. In my live run it routed 12 of 12 cases correctly; the two failures were a model-dependent conflict flag (TC09) and a keyword gap in my own test (TC11).
+
+**M12. What happens if one agent fails?** A worker that can't reach Search or the model returns an `error` result instead of raising, so the request continues. The reviewer sees the gap and requires human review. If the reviewer's own model call fails, the verdict falls back to the deterministic checks and requires human review. If the orchestrator's model fails it routes to the Knowledge agent.
+
+## "Tell me about your multi-agent Azure AI project" (60 to 90 seconds)
+"IT teams keep their knowledge in runbooks and policies, and a generic chatbot will confidently invent fixes. I built an enterprise assistant on Azure that answers only from company documents. I started with a RAG pipeline on Azure AI Search and Azure OpenAI, then upgraded it to a multi-agent design.
+
+An orchestrator agent classifies each request and decides who handles it. An incident agent analyses failures, a knowledge agent answers policy questions through hybrid search, and a general agent handles generic technology questions, clearly labelled as not from company documents. They pass structured messages, and every finding is marked as from sources, inference or unknown.
+
+A separate Responsible AI review agent checks the combined result for grounding, safety, privacy and unsupported claims, and assigns a risk level. For something like 'VPN is failing, should we disable MFA?', both the incident and knowledge agents run, the risk comes back HIGH, and the answer requires human review, because the system shouldn't decide that alone. Prompt injection is blocked by rules before any model runs.
+
+For security, secrets sit in Key Vault behind a managed identity, and telemetry never logs question text. The trade-off is cost and latency: about three or four model calls per request instead of two. Agents run sequentially today, so parallelising them is my next step. I've also been clear about the limits: it's synthetic data, a small evaluation, and token authentication to the AI services and API Management are future work."

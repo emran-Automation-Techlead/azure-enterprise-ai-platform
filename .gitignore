@@ -16,3 +16,11 @@ try_*.py
 evaluation/results.json
 
 try_*.html
+
+# generated narration audio
+docs/video/audio/
+*.mp3
+
+# Video assets stay on this PC (Downloadsnterprise_AI_Platform_Video), never on GitHub
+docs/video/
+scripts/generate_voiceover.py

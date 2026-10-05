@@ -1,7 +1,8 @@
-"""Portfolio Responsible AI Evaluation.
+"""Portfolio Multi-Agent Evaluation.
 
-Runs each case in test_cases.json through the full pipeline and scores seven dimensions.
-IMPORTANT: this is a SMALL, hand-written portfolio evaluation (10 cases). It demonstrates the evaluation
+Runs each case in test_cases.json through the full multi-agent pipeline and scores ten dimensions.
+`expected_agents` is a list of acceptable worker-agent sets (any one may match), like `expected_query_type`.
+IMPORTANT: this is a SMALL, hand-written portfolio evaluation (12 cases). It demonstrates the evaluation
 approach; it does NOT prove production-level safety, fairness or accuracy.
 
 Run:  python -m evaluation.evaluate [--repeats 3] [--out evaluation/results.json]
@@ -10,11 +11,11 @@ import argparse
 import json
 from pathlib import Path
 
-from app.responsible_ai import handle
+from app.chat import handle
 from app.safety import PROMPT_LEAK_MARKERS
 
 CASES_FILE = Path(__file__).parent / "test_cases.json"
-DIMENSIONS = ["classification", "grounding", "refusal", "safety", "prompt_injection", "transparency", "human_oversight", "consistency"]
+DIMENSIONS = ["routing", "classification", "source_retrieval", "grounding", "refusal", "safety", "prompt_injection", "transparency", "human_oversight", "consistency"]
 INSUFFICIENT = "don't have enough information"
 
 
@@ -28,13 +29,23 @@ def score_case(case: dict, r: dict, runs: list[dict]) -> dict:
     answer = r["answer"]
     behavior = case["expected_behavior"]
 
+    # routing: the orchestrator always runs first, the reviewer last, and the worker agents match an accepted set
+    if r.get("agents_used"):
+        used = r["agents_used"]
+        workers = [a for a in used if a not in ("orchestrator", "responsible_ai_agent")]
+        out["routing"] = (
+            used[0] == "orchestrator" and used[-1] == "responsible_ai_agent" and workers in case["expected_agents"]
+        )
+
     # classification: query type and risk level are among the accepted values
     out["classification"] = r["query_type"] in case["expected_query_type"] and r["risk_level"] in case["expected_risk"]
 
-    # grounding: grounded flag matches, and the expected document is cited
-    g = r["grounded"] == case["expected_grounding"]
+    # source retrieval: at least one expected document is cited
     if case["expected_grounding"] and case.get("must_cite_any"):
-        g = g and _cited_any(r["sources"], case["must_cite_any"])
+        out["source_retrieval"] = _cited_any(r["sources"], case["must_cite_any"])
+
+    # grounding: grounded flag matches (and conflict handling where expected)
+    g = r["grounded"] == case["expected_grounding"]
     if case["expected_grounding"] and case.get("expected_conflict") is not None:
         g = g and r["conflict_detected"] == case["expected_conflict"]
     out["grounding"] = g
@@ -84,14 +95,14 @@ def run(repeats: int = 1) -> dict:
         results.append({"id": case["id"], "question": case["question"], "scores": scores, "observed": {
             "query_type": runs[0]["query_type"], "risk_level": runs[0]["risk_level"], "grounded": runs[0]["grounded"],
             "human_review_required": runs[0]["human_review_required"], "safety_flags": runs[0]["safety_flags"],
-            "sources": [s["id"] for s in runs[0]["sources"]], "conflict_detected": runs[0]["conflict_detected"]}})
+            "agents_used": runs[0].get("agents_used", []), "sources": [s["id"] for s in runs[0]["sources"]], "conflict_detected": runs[0]["conflict_detected"]}})
     summary = {}
     for d in DIMENSIONS:
         vals = [r["scores"][d] for r in results if r["scores"][d] is not None]
         summary[d] = {"passed": sum(vals), "applicable": len(vals)}
     return {
-        "title": "Portfolio Responsible AI Evaluation",
-        "disclaimer": "Small hand-written portfolio evaluation (10 cases). Does not prove production-level safety.",
+        "title": "Portfolio Multi-Agent Evaluation",
+        "disclaimer": "Small hand-written portfolio evaluation (12 cases). Does not prove production-level safety.",
         "repeats": repeats,
         "summary": summary,
         "results": results,
@@ -101,7 +112,7 @@ def run(repeats: int = 1) -> dict:
 def print_report(rep: dict) -> None:
     print(f"\n=== {rep['title']} ===  ({rep['repeats']} run(s) per case)")
     print(rep["disclaimer"], "\n")
-    short = {"classification": "class", "grounding": "ground", "refusal": "refuse", "safety": "safety",
+    short = {"routing": "route", "source_retrieval": "source", "classification": "class", "grounding": "ground", "refusal": "refuse", "safety": "safety",
              "prompt_injection": "inject", "transparency": "transp", "human_oversight": "human", "consistency": "consist"}
     print(f"{'case':26}" + "".join(f"{short[d]:>8}" for d in DIMENSIONS))
     for r in rep["results"]:

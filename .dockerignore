@@ -11,3 +11,4 @@ data/
 try_*.py
 evaluation/results.json
 .pytest_cache/
+evaluation/results*.json

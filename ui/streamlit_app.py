@@ -6,7 +6,9 @@ import streamlit as st
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 EXAMPLES = {
+    "VPN + MFA (multi-agent)": "VPN authentication is failing for multiple users. What should I check, and should we disable MFA temporarily?",
     "VPN incident": "VPN authentication is failing for multiple users. What should I check?",
+    "General question": "Explain the difference between containers and VMs.",
     "Password policy": "What is the password reset policy?",
     "Active Directory": "How do I troubleshoot Active Directory login failures?",
     "Unknown incident": "Tell me something about an incident that is not in your knowledge base.",
@@ -22,11 +24,10 @@ with st.sidebar:
     st.header("How it works")
     st.markdown(
         """
-1. **AI Router** classifies the question and its risk
-2. **Azure AI Search** retrieves enterprise documents (hybrid + vector)
+1. **Orchestrator Agent** classifies the request and picks the agents
+2. **Incident / Knowledge / General agents** do the specialised work (Azure AI Search + Azure OpenAI)
 3. **Grounding gate**: no relevant documents → no model answer
-4. **Azure OpenAI** answers only from those documents
-5. **Responsible AI layer** checks safety, conflicts and decides on human review
+4. **Responsible AI Review Agent** independently checks grounding, safety, risk, privacy and decides on human review
 """
     )
     st.divider()
@@ -68,6 +69,19 @@ if res:
     if res["human_review_required"]:
         st.warning("**Human review recommended.** " + " ".join(res["human_review_reasons"]))
 
+    if res.get("agent_trace"):
+        ICON = {"success": "✅", "done": "✅", "approved": "✅", "no_knowledge": "⚠️", "human_review": "🧑‍⚖️", "error": "❌", "refused": "⛔"}
+        with st.expander("Agent Workflow", expanded=True):
+            for i, step in enumerate(res["agent_trace"], 1):
+                name = step["agent"].replace("_", " ").title().replace("Ai", "AI")
+                icon = ICON.get(step["status"], "-")
+                lines = [f"**{i}. {name}** {icon} `{step['status']}`", step["purpose"]]
+                if step["result"]:
+                    lines.append(f"_{step['result']}_")
+                st.markdown("  \n".join(lines))
+                if i < len(res["agent_trace"]):
+                    st.markdown("&nbsp;&nbsp;↓")
+
     st.markdown("### AI Response")
     st.markdown(res["answer"])
     if res["privacy_notice"]:
@@ -91,6 +105,8 @@ if res:
         st.markdown(f"**Human Review:** {'YES' if res['human_review_required'] else 'NO'}")
         st.markdown("**Safety Flags:** " + (", ".join(res["safety_flags"]) if res["safety_flags"] else "NONE"))
         st.markdown(f"**AI Generated:** {'YES' if res['ai_disclosure'] else 'NO'}")
+        if res.get("review_reason"):
+            st.caption("Review: " + res["review_reason"])
         if res["conflict_detected"]:
             st.markdown("**Source conflict:** detected")
         st.caption(f"{res['risk_classification_note']} · grounding score is an application-level metric, not validated truth · {res['tokens_used']} tokens")

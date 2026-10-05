@@ -58,6 +58,8 @@ Instruction-override attempts are blocked by rules **before** any search or mode
 LOW / MEDIUM / HIGH / CRITICAL, assigned by deterministic rules (e.g. "disable security controls" = HIGH, "bypass security controls" = CRITICAL). **Portfolio demonstration risk classification: not a certified framework.**
 
 ## 16. Evaluation methodology
+*Section 16 records the original single-pipeline run (10 cases). The multi-agent evaluation is described in section 19.*
+
 `evaluation/evaluate.py` runs 10 hand-written cases, 3 runs each, across 8 dimensions: classification, grounding, refusal, safety, prompt injection, transparency, human oversight, consistency. See `docs/screenshots/16-responsible-ai-evaluation.png`.
 
 Result of the recorded run: classification 10/10, grounding 10/10, refusal 3/3, safety 3/3, prompt injection 1/1, transparency 10/10, consistency 10/10, **human oversight 9/10**. The failure (TC09) is documented, not hidden: for "What is the VPN troubleshooting procedure?" the model sometimes cites both VPN documents and surfaces their genuine timeout conflict, which triggers review.
@@ -71,3 +73,25 @@ Result of the recorded run: classification 10/10, grounding 10/10, refusal 3/3, 
 
 ## 18. Future improvements
 Azure AI Content Safety Prompt Shields; semantic ranker; claim-level conflict detection against the answer text; an expanded, versioned evaluation set run in CI; red-team testing; per-user document access control; audit log export.
+
+## 19. Multi-agent update: Responsible AI as an independent review agent
+Sections 1 to 18 describe the controls as first built, inside one pipeline. They still apply. In the multi-agent version the review is a separate agent (`app/agents/responsible_ai_agent.py`) that evaluates the **combined** output of the Incident, Knowledge and General agents. Setting `AGENT_MODE=single` restores the original pipeline. Full design: [multi-agent-architecture.md](multi-agent-architecture.md).
+
+How the review agent works: a deterministic floor (plan rules, Azure AI Content Safety, output scan, conflicts, missing knowledge, outages, sensitive input) plus one model call for semantic review. The model can only **raise** the risk or add flags, never lower it or approve something the floor rejected. It returns a structured verdict (`grounded`, `risk_level`, `safety_flags`, `privacy_flags`, `unsupported_claims`, `human_review_required`, `approved`, `reason`) with a concise reason and no chain-of-thought.
+
+| Principle | In the multi-agent version |
+|---|---|
+| Fairness | Unchanged: consistent rules, no user profiling, no demographic input. Not a fairness guarantee; no demographic testing. |
+| Transparency | Findings are labelled From sources / Inference / Unknown. General answers are labelled `GENERAL_AI_RESPONSE` and cannot carry enterprise sources. The UI shows an agent workflow. |
+| Explainability | Agent trace (name, status, purpose, high-level result) plus the reviewer's one-line reason. No hidden reasoning is exposed. |
+| Privacy | Secrets are redacted before any agent. The reviewer flags sensitive data in input and output. Logs never contain text. |
+| Safety | Blocked requests (injection, credential request, bypass) never reach a worker agent or model. Content Safety and the output scan run in the reviewer. |
+| Reliability | `NO_RELEVANT_KNOWLEDGE` when retrieval is weak; worker outages return `error` instead of crashing; reviewer failure fails safe to human review. |
+| Accountability | Every response lists `agents_used` and a trace, so each step can be traced. |
+| Human oversight | Required for risk MEDIUM or above, conflicts, insufficient evidence, outages, unsupported claims, sensitive input and blocked requests. |
+| Grounding | Enterprise agents must cite retrieved documents; an unsourced claim is downgraded to INFERENCE; the reviewer reports `grounded` only if every enterprise agent was grounded. |
+| Prompt injection | Rules block it before any model. Document text and agent output are treated as data. Content Safety does not detect injection; Prompt Shields are a future step. |
+| Risk classification | LOW / MEDIUM / HIGH / CRITICAL, a **portfolio demonstration risk classification**, not a certified framework. Examples: VPN procedure LOW, restart production MEDIUM, disable MFA HIGH, bypass security CRITICAL. |
+| Evaluation | "Portfolio Multi-Agent Evaluation": 12 hand-written cases, 10 dimensions including routing and source retrieval (`python -m evaluation.evaluate`). Live run (12 cases × 3, 2026-10-05): routing 12/12, classification 12/12, source retrieval 6/6, grounding 12/12, refusal 3/3, prompt injection 1/1, transparency 12/12, human oversight 12/12, safety 3/4, consistency 11/12. Failures are explained in the README (TC09 model-dependent conflict surfacing; TC11 keyword gap in the test, which I widened and re-scored). The numbers in section 16 belong to the original single-pipeline run. |
+
+Known limits specific to this version: the reviewer sees claims and source IDs, not full source text; a 12-case evaluation does not prove reliability; each request makes more model calls than before (see the cost section of the architecture document).

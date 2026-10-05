@@ -1,6 +1,8 @@
 """Request / response schemas. The response carries the Responsible AI metadata so every decision is traceable."""
 from pydantic import BaseModel, Field, field_validator
 
+from app.agents.messages import TraceStep
+
 
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
@@ -38,6 +40,10 @@ class ChatResponse(BaseModel):
     risk_classification_note: str = "Portfolio demonstration risk classification"
     explanation: str = ""                 # plain-language summary of how the answer was produced (no chain-of-thought)
     tokens_used: int = 0
+    # multi-agent additions (defaults keep the single-agent response valid)
+    agents_used: list[str] = []
+    agent_trace: list[TraceStep] = []
+    review_reason: str = ""
 
 
 class SafetyCheckRequest(BaseModel):
